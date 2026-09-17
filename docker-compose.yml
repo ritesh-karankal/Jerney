@@ -1,146 +1,68 @@
 services:
-  # ============================================================
-  # PostgreSQL Database
-  # ============================================================
+  # ---- PostgreSQL Database ----
   db:
-    image: postgres:16.10-alpine
+    image: postgres:16-alpine
     container_name: jerney-db
     restart: unless-stopped
-
     environment:
-      POSTGRES_USER: ${DB_USER}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-      POSTGRES_DB: ${DB_NAME}
-
-    # Do NOT expose PostgreSQL to the EC2 host/public network.
-    # Backend accesses it through the internal Docker network.
-    expose:
-      - "5432"
-
+      POSTGRES_USER: jerney_user
+      POSTGRES_PASSWORD: jerney_pass_2026
+      POSTGRES_DB: jerney_db
+    ports:
+      - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
-
-    networks:
-      - backend
-
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      test: ["CMD-SHELL", "pg_isready -U jerney_user -d jerney_db"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 10s
-
-    security_opt:
-      - no-new-privileges:true
-
-    # PostgreSQL needs some capabilities depending on image/runtime,
-    # so don't blindly drop everything here until tested.
+    # Security: read-only root filesystem where possible
     tmpfs:
       - /tmp
+      - /run
 
-    # Resource limits
-    mem_limit: 512m
-    cpus: "1.0"
-
-
-  # ============================================================
-  # Backend API
-  # ============================================================
+  # ---- Backend API ----
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
-
     container_name: jerney-backend
     restart: unless-stopped
-
     environment:
       PORT: "5000"
-      DB_USER: ${DB_USER}
-      DB_PASSWORD: ${DB_PASSWORD}
+      DB_USER: jerney_user
+      DB_PASSWORD: jerney_pass_2026
       DB_HOST: db
       DB_PORT: "5432"
-      DB_NAME: ${DB_NAME}
-
-    # Only accessible by other containers.
+      DB_NAME: jerney_db
     expose:
       - "5000"
-
     depends_on:
       db:
         condition: service_healthy
-
-    networks:
-      - backend
-      - frontend
-
+    # Security: do not run as root (already in Dockerfile, but enforced here too)
     security_opt:
       - no-new-privileges:true
-
     read_only: true
-
     tmpfs:
       - /tmp
 
-    cap_drop:
-      - ALL
-
-    mem_limit: 256m
-    cpus: "0.5"
-
-
-  # ============================================================
-  # Frontend
-  # ============================================================
+  # ---- Frontend (Nginx + React) ----
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-
     container_name: jerney-frontend
     restart: unless-stopped
-
     ports:
       - "80:8080"
-
     depends_on:
       - backend
-
-    networks:
-      - frontend
-
     security_opt:
       - no-new-privileges:true
 
-    read_only: true
-
-    tmpfs:
-      - /tmp
-      - /var/cache/nginx
-      - /var/run
-
-    cap_drop:
-      - ALL
-
-    mem_limit: 128m
-    cpus: "0.5"
-
-
-# ============================================================
-# Networks
-# ============================================================
-networks:
-  frontend:
-    driver: bridge
-
-  backend:
-    driver: bridge
-    internal: true
-
-
-# ============================================================
-# Persistent Storage
-# ============================================================
 volumes:
   pgdata:
     driver: local
